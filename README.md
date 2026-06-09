@@ -1,26 +1,23 @@
-# Minimalist OATS Calendar
+# Minimalist OATS Calendar v3
 
-A small Flutter Web weekly schedule app inspired by a handwritten OATS weekly report sheet.
+Flutter Web weekly schedule app inspired by the OATS weekly report sheet.
 
-## Features
+## v3 updates
 
-- Weekly grid: configurable start day, 7 days shown.
-- Auto week range at the top: `DD.MM.YY ~ DD.MM.YY`.
-- Previous / next week navigation.
-- Editable `TEAM` and `NAME` fields.
-- Time rows from `6` to `24`.
-- Three default late-night rows: `25`, `26`, `27`.
-- `+ Add late row` and `Remove late row` buttons.
-- 24h / 12h toggle.
-- Editable schedule cells.
-- Preset and custom RGB ink colors.
-- Daily review:
-  - Done = green.
-  - Missed = grey.
-  - Not sure = yellow.
-- Default review time is 10:00 PM, configurable by user.
-- Auto-review opens when the app is open and the review time passes.
-- Data is stored locally in the browser using `shared_preferences`.
+- Local-first storage using browser local storage.
+- Export/import full backup as JSON anytime.
+- Download the visible schedule as PNG.
+- GitHub Pages deployment workflow included.
+- Start day selector moved to the top bar next to the 24h/12h control.
+- Undo button for edits, imports, row changes, review changes, and drag/drop.
+- Overlap handling: later items are pushed down automatically.
+- Review any day from the `Review Day` button or by tapping a day header.
+- Review screen has visible `Done`, `Missed`, and `Not sure` buttons directly.
+- 30-minute slots with duration-based item blocks.
+- Dashed row guides instead of full horizontal row borders.
+- Long-press and drag:
+  - Same day = move vertically.
+  - Different day = copy horizontally.
 
 ## Run locally
 
@@ -29,18 +26,11 @@ flutter pub get
 flutter run -d chrome
 ```
 
-## Build for web
+## Deploy to GitHub Pages today
 
-```bash
-flutter build web
-```
+1. Push this project to your repo.
+2. In GitHub: Settings → Pages → Source → GitHub Actions.
+3. Push to `main`.
+4. Wait for the Actions workflow to finish.
 
-Upload `build/web` to Firebase Hosting, Netlify, Vercel, GitHub Pages, or any static web host.
-
-## Reminder roadmap
-
-Actual background notifications are intentionally not implemented in this MVP. Later options:
-
-1. Flutter mobile notifications with `flutter_local_notifications`.
-2. Browser push notifications with service workers.
-3. Firebase Cloud Messaging for cross-device reminders.
+The workflow automatically uses `/` for `<username>.github.io` repos and `/<repo-name>/` for project pages.

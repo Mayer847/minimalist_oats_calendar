@@ -1,14 +1,20 @@
-# Minimalist OATS Calendar v3
+# Minimalist OATS Calendar
 
-Flutter Web weekly schedule app inspired by the OATS weekly report sheet.
+A minimalist Flutter Web weekly schedule app inspired by the handwritten OATS weekly report sheet.
 
-## v3 updates
+## Live App
+
+Open the app here:
+
+https://mayer847.github.io/minimalist_oats_calendar/
+
+## Features
 
 - Local-first storage using browser local storage.
 - Export/import full backup as JSON anytime.
 - Download the visible schedule as PNG.
 - GitHub Pages deployment workflow included.
-- Start day selector moved to the top bar next to the 24h/12h control.
+- Start day selector in the top bar next to the 24h/12h control.
 - Undo button for edits, imports, row changes, review changes, and drag/drop.
 - Overlap handling: later items are pushed down automatically.
 - Review any day from the `Review Day` button or by tapping a day header.
@@ -19,18 +25,50 @@ Flutter Web weekly schedule app inspired by the OATS weekly report sheet.
   - Same day = move vertically.
   - Different day = copy horizontally.
 
-## Run locally
+## Run Locally
 
 ```bash
 flutter pub get
 flutter run -d chrome
 ```
 
-## Deploy to GitHub Pages today
+## Build for Web
 
-1. Push this project to your repo.
-2. In GitHub: Settings → Pages → Source → GitHub Actions.
-3. Push to `main`.
-4. Wait for the Actions workflow to finish.
+```bash
+flutter build web --release --base-href /minimalist_oats_calendar/
+```
 
-The workflow automatically uses `/` for `<username>.github.io` repos and `/<repo-name>/` for project pages.
+## Deploy to GitHub Pages
+
+This project includes a GitHub Actions workflow at:
+
+```text
+.github/workflows/deploy.yml
+```
+
+To deploy:
+
+1. Push changes to the `main` branch.
+2. Go to GitHub repo settings.
+3. Open **Pages**.
+4. Set **Source** to **GitHub Actions**.
+5. Wait for the workflow to finish.
+6. Open:
+
+```text
+https://mayer847.github.io/minimalist_oats_calendar/
+```
+
+## Backup and Restore
+
+Use the export/import menu inside the app:
+
+- **Export backup JSON**: saves all local schedule data to a `.json` file.
+- **Import backup JSON**: restores schedule data from a previous backup.
+- **Download schedule PNG**: exports the visible schedule as an image.
+
+## Notes
+
+- Data is stored locally in the browser, so use **Export backup JSON** regularly if you want to preserve or move your data between browsers/devices.
+- The app is static and can be hosted on GitHub Pages.
+- Background reminders are planned for a later version.

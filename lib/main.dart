@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -13,33 +15,45 @@ class OatsScheduleApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final handwrittenTheme = GoogleFonts.caveatTextTheme();
+
     return MaterialApp(
       title: 'Weekly OATS Schedule',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorSchemeSeed: Colors.green,
         useMaterial3: true,
-        textTheme: GoogleFonts.caveatTextTheme(),
+        colorSchemeSeed: const Color(0xFF2F7D32),
+        scaffoldBackgroundColor: const Color(0xFFFFFDF4),
+        textTheme: handwrittenTheme,
       ),
       home: const WeeklySchedulePage(),
     );
   }
 }
 
-enum EntryStatus { none, done, missed, unsure }
+enum EntryStatus {
+  none,
+  done,
+  missed,
+  unsure,
+}
 
 class ScheduleEntry {
   final String text;
   final int colorValue;
   final EntryStatus status;
 
-  ScheduleEntry({
+  const ScheduleEntry({
     required this.text,
     required this.colorValue,
     required this.status,
   });
 
-  ScheduleEntry copyWith({String? text, int? colorValue, EntryStatus? status}) {
+  ScheduleEntry copyWith({
+    String? text,
+    int? colorValue,
+    EntryStatus? status,
+  }) {
     return ScheduleEntry(
       text: text ?? this.text,
       colorValue: colorValue ?? this.colorValue,
@@ -48,19 +62,30 @@ class ScheduleEntry {
   }
 
   Map<String, dynamic> toJson() {
-    return {'text': text, 'colorValue': colorValue, 'status': status.name};
+    return {
+      'text': text,
+      'colorValue': colorValue,
+      'status': status.name,
+    };
   }
 
   factory ScheduleEntry.fromJson(Map<String, dynamic> json) {
     return ScheduleEntry(
-      text: json['text'] ?? '',
-      colorValue: json['colorValue'] ?? Colors.black.value,
+      text: json['text'] as String? ?? '',
+      colorValue: json['colorValue'] as int? ?? Colors.black.value,
       status: EntryStatus.values.firstWhere(
-        (s) => s.name == json['status'],
+        (item) => item.name == json['status'],
         orElse: () => EntryStatus.none,
       ),
     );
   }
+}
+
+class WeekdayOption {
+  final String label;
+  final int weekday;
+
+  const WeekdayOption(this.label, this.weekday);
 }
 
 class WeeklySchedulePage extends StatefulWidget {
@@ -71,132 +96,277 @@ class WeeklySchedulePage extends StatefulWidget {
 }
 
 class _WeeklySchedulePageState extends State<WeeklySchedulePage> {
-  static const List<String> days = [
-    'SUN',
-    'MON',
-    'TUE',
-    'WED',
-    'THU',
-    'FRI',
-    'SAT',
+  static const List<WeekdayOption> weekdayOptions = [
+    WeekdayOption('MON', DateTime.monday),
+    WeekdayOption('TUE', DateTime.tuesday),
+    WeekdayOption('WED', DateTime.wednesday),
+    WeekdayOption('THU', DateTime.thursday),
+    WeekdayOption('FRI', DateTime.friday),
+    WeekdayOption('SAT', DateTime.saturday),
+    WeekdayOption('SUN', DateTime.sunday),
   ];
 
-  static const List<int> hours = [
-    6,
-    7,
-    8,
-    9,
-    10,
-    11,
-    12,
-    13,
-    14,
-    15,
-    16,
-    17,
-    18,
-    19,
-    20,
-    21,
-    22,
-    23,
-    24,
-  ];
-
+  final List<int> baseHours = List.generate(19, (index) => index + 6); // 6 → 24
   final Map<String, ScheduleEntry> entries = {};
 
+  Timer? reviewTimer;
+
   bool use24HourFormat = true;
+  int selectedStartWeekday = DateTime.sunday;
+  int extraLateRows = 3;
+
+  DateTime selectedWeekStart = DateTime.now();
   TimeOfDay reviewTime = const TimeOfDay(hour: 22, minute: 0);
 
   String team = '';
   String name = '';
+  String lastAutoReviewDateKey = '';
 
   @override
   void initState() {
     super.initState();
+    selectedWeekStart = _startOfWeek(DateTime.now(), selectedStartWeekday);
     _loadData();
+    _startReviewTimer();
   }
 
-  String _key(String day, int hour) => '$day-$hour';
+  @override
+  void dispose() {
+    reviewTimer?.cancel();
+    super.dispose();
+  }
 
-  Future<void> _loadData() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    final savedEntries = prefs.getString('entries');
-    final savedUse24 = prefs.getBool('use24HourFormat');
-    final savedReviewHour = prefs.getInt('reviewHour');
-    final savedReviewMinute = prefs.getInt('reviewMinute');
-    final savedTeam = prefs.getString('team');
-    final savedName = prefs.getString('name');
-
-    if (savedEntries != null) {
-      final decoded = jsonDecode(savedEntries) as Map<String, dynamic>;
-
-      entries.clear();
-
-      decoded.forEach((key, value) {
-        entries[key] = ScheduleEntry.fromJson(value);
-      });
-    }
-
-    setState(() {
-      use24HourFormat = savedUse24 ?? true;
-      reviewTime = TimeOfDay(
-        hour: savedReviewHour ?? 22,
-        minute: savedReviewMinute ?? 0,
+  TextStyle get _titleStyle => GoogleFonts.caveat(
+        fontSize: 34,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.3,
       );
-      team = savedTeam ?? '';
-      name = savedName ?? '';
-    });
+
+  TextStyle get _headerStyle => GoogleFonts.caveat(
+        fontSize: 27,
+        fontWeight: FontWeight.w700,
+      );
+
+  TextStyle get _cellStyle => GoogleFonts.caveat(
+        fontSize: 21,
+        fontWeight: FontWeight.w600,
+      );
+
+  DateTime _dateOnly(DateTime date) => DateTime(date.year, date.month, date.day);
+
+  DateTime _startOfWeek(DateTime date, int startWeekday) {
+    final cleanDate = _dateOnly(date);
+    final diff = (cleanDate.weekday - startWeekday) % 7;
+    return cleanDate.subtract(Duration(days: diff));
   }
 
-  Future<void> _saveData() async {
-    final prefs = await SharedPreferences.getInstance();
+  DateTime _weekEnd() => selectedWeekStart.add(const Duration(days: 6));
 
-    final encodedEntries = entries.map(
-      (key, value) => MapEntry(key, value.toJson()),
-    );
+  List<DateTime> _visibleDates() {
+    return List.generate(7, (index) => selectedWeekStart.add(Duration(days: index)));
+  }
 
-    await prefs.setString('entries', jsonEncode(encodedEntries));
-    await prefs.setBool('use24HourFormat', use24HourFormat);
-    await prefs.setInt('reviewHour', reviewTime.hour);
-    await prefs.setInt('reviewMinute', reviewTime.minute);
-    await prefs.setString('team', team);
-    await prefs.setString('name', name);
+  List<int> _allHours() {
+    return [
+      ...baseHours,
+      ...List.generate(extraLateRows, (index) => 25 + index),
+    ];
+  }
+
+  String _dateKey(DateTime date) {
+    final cleanDate = _dateOnly(date);
+    final y = cleanDate.year.toString().padLeft(4, '0');
+    final m = cleanDate.month.toString().padLeft(2, '0');
+    final d = cleanDate.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
+  String _cellKey(DateTime date, int hour) => '${_dateKey(date)}-$hour';
+
+  String _shortDate(DateTime date) {
+    final d = date.day.toString().padLeft(2, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final y = (date.year % 100).toString().padLeft(2, '0');
+    return '$d.$m.$y';
+  }
+
+  String _dayLabel(DateTime date) {
+    return weekdayOptions
+        .firstWhere((item) => item.weekday == date.weekday)
+        .label;
   }
 
   String _formatHour(int hour) {
-    if (use24HourFormat) {
-      return hour.toString();
-    }
+    if (use24HourFormat) return hour.toString();
 
-    if (hour == 24) {
-      return '12 AM';
-    }
+    final normalized = hour % 24 == 0 ? 24 : hour % 24;
+    final isPm = normalized >= 12 && normalized < 24;
+    final period = isPm ? 'PM' : 'AM';
+    final displayHour = normalized % 12 == 0 ? 12 : normalized % 12;
+    final plusOne = hour > 24 ? ' +1' : '';
 
-    final period = hour >= 12 ? 'PM' : 'AM';
-    final displayHour = hour % 12 == 0 ? 12 : hour % 12;
-
-    return '$displayHour $period';
+    return '$displayHour $period$plusOne';
   }
 
   Color _statusBackground(EntryStatus status) {
     switch (status) {
       case EntryStatus.done:
-        return Colors.green.withOpacity(0.25);
+        return const Color(0xFFC8E6C9);
       case EntryStatus.missed:
-        return Colors.grey.withOpacity(0.35);
+        return const Color(0xFFD7D7D7);
       case EntryStatus.unsure:
-        return Colors.amber.withOpacity(0.25);
+        return const Color(0xFFFFF2B8);
       case EntryStatus.none:
         return Colors.transparent;
     }
   }
 
-  Future<void> _editEntry(String day, int hour) async {
-    final cellKey = _key(day, hour);
-    final oldEntry =
-        entries[cellKey] ??
+  String _statusLabel(EntryStatus status) {
+    switch (status) {
+      case EntryStatus.done:
+        return 'Done';
+      case EntryStatus.missed:
+        return 'Missed';
+      case EntryStatus.unsure:
+        return 'Not sure';
+      case EntryStatus.none:
+        return 'Not reviewed';
+    }
+  }
+
+  Future<void> _loadData() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final savedEntries = prefs.getString('entries');
+    final savedWeekStart = prefs.getString('selectedWeekStart');
+
+    if (savedEntries != null && savedEntries.trim().isNotEmpty) {
+      final decoded = jsonDecode(savedEntries) as Map<String, dynamic>;
+      entries
+        ..clear()
+        ..addAll(decoded.map(
+          (key, value) => MapEntry(
+            key,
+            ScheduleEntry.fromJson(Map<String, dynamic>.from(value as Map)),
+          ),
+        ));
+    }
+
+    setState(() {
+      use24HourFormat = prefs.getBool('use24HourFormat') ?? true;
+      selectedStartWeekday = prefs.getInt('selectedStartWeekday') ?? DateTime.sunday;
+      extraLateRows = prefs.getInt('extraLateRows') ?? 3;
+      reviewTime = TimeOfDay(
+        hour: prefs.getInt('reviewHour') ?? 22,
+        minute: prefs.getInt('reviewMinute') ?? 0,
+      );
+      team = prefs.getString('team') ?? '';
+      name = prefs.getString('name') ?? '';
+      lastAutoReviewDateKey = prefs.getString('lastAutoReviewDateKey') ?? '';
+      selectedWeekStart = savedWeekStart == null
+          ? _startOfWeek(DateTime.now(), selectedStartWeekday)
+          : _dateOnly(DateTime.parse(savedWeekStart));
+    });
+  }
+
+  Future<void> _saveData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final encodedEntries = entries.map((key, value) => MapEntry(key, value.toJson()));
+
+    await prefs.setString('entries', jsonEncode(encodedEntries));
+    await prefs.setBool('use24HourFormat', use24HourFormat);
+    await prefs.setInt('selectedStartWeekday', selectedStartWeekday);
+    await prefs.setInt('extraLateRows', extraLateRows);
+    await prefs.setString('selectedWeekStart', selectedWeekStart.toIso8601String());
+    await prefs.setInt('reviewHour', reviewTime.hour);
+    await prefs.setInt('reviewMinute', reviewTime.minute);
+    await prefs.setString('team', team);
+    await prefs.setString('name', name);
+    await prefs.setString('lastAutoReviewDateKey', lastAutoReviewDateKey);
+  }
+
+  void _startReviewTimer() {
+    reviewTimer?.cancel();
+    reviewTimer = Timer.periodic(const Duration(minutes: 1), (_) => _maybeAutoOpenReview());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeAutoOpenReview());
+  }
+
+  Future<void> _maybeAutoOpenReview() async {
+    if (!mounted) return;
+
+    final now = DateTime.now();
+    final todayKey = _dateKey(now);
+    final reviewDateTime = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      reviewTime.hour,
+      reviewTime.minute,
+    );
+
+    final shouldReview = !now.isBefore(reviewDateTime) && lastAutoReviewDateKey != todayKey;
+    if (!shouldReview) return;
+
+    final hasTodayEntries = entries.keys.any((key) => key.startsWith('$todayKey-'));
+    if (!hasTodayEntries) {
+      lastAutoReviewDateKey = todayKey;
+      await _saveData();
+      return;
+    }
+
+    lastAutoReviewDateKey = todayKey;
+    await _saveData();
+    await _reviewDate(_dateOnly(now));
+  }
+
+  Future<void> _chooseReviewTime() async {
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: reviewTime,
+    );
+
+    if (selected == null) return;
+
+    setState(() => reviewTime = selected);
+    await _saveData();
+  }
+
+  Future<void> _editHeaderField({
+    required String title,
+    required String initialValue,
+    required ValueChanged<String> onSaved,
+  }) async {
+    final controller = TextEditingController(text: initialValue);
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title, style: _titleStyle),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: GoogleFonts.caveat(fontSize: 28),
+          decoration: InputDecoration(hintText: title),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == null) return;
+
+    setState(() => onSaved(result));
+    await _saveData();
+  }
+
+  Future<void> _editEntry(DateTime date, int hour) async {
+    final cellKey = _cellKey(date, hour);
+    final oldEntry = entries[cellKey] ??
         ScheduleEntry(
           text: '',
           colorValue: Colors.black.value,
@@ -213,78 +383,76 @@ class _WeeklySchedulePageState extends State<WeeklySchedulePage> {
           builder: (context, dialogSetState) {
             return AlertDialog(
               title: Text(
-                '$day - ${_formatHour(hour)}',
-                style: GoogleFonts.caveat(
-                  fontSize: 30,
-                  fontWeight: FontWeight.bold,
-                ),
+                '${_dayLabel(date)} ${_shortDate(date)} - ${_formatHour(hour)}',
+                style: _titleStyle,
               ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: textController,
-                    maxLines: 3,
-                    style: GoogleFonts.caveat(fontSize: 26),
-                    decoration: const InputDecoration(
-                      hintText: 'Write your plan...',
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: textController,
+                      autofocus: true,
+                      maxLines: 3,
+                      style: GoogleFonts.caveat(fontSize: 28, color: selectedColor),
+                      decoration: const InputDecoration(
+                        hintText: 'Write the appointment / task...',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 10,
-                    children: [
-                      _colorDot(
-                        Colors.black,
-                        selectedColor,
-                        () => dialogSetState(() {
-                          selectedColor = Colors.black;
-                        }),
-                      ),
-                      _colorDot(
-                        Colors.red,
-                        selectedColor,
-                        () => dialogSetState(() {
-                          selectedColor = Colors.red;
-                        }),
-                      ),
-                      _colorDot(
-                        Colors.blue,
-                        selectedColor,
-                        () => dialogSetState(() {
-                          selectedColor = Colors.blue;
-                        }),
-                      ),
-                      _colorDot(
-                        Colors.green,
-                        selectedColor,
-                        () => dialogSetState(() {
-                          selectedColor = Colors.green;
-                        }),
-                      ),
-                      _colorDot(
-                        Colors.purple,
-                        selectedColor,
-                        () => dialogSetState(() {
-                          selectedColor = Colors.purple;
-                        }),
-                      ),
-                      _colorDot(
-                        Colors.orange,
-                        selectedColor,
-                        () => dialogSetState(() {
-                          selectedColor = Colors.orange;
-                        }),
-                      ),
-                    ],
-                  ),
-                ],
+                    const SizedBox(height: 14),
+                    Text('Ink color', style: _headerStyle),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        for (final color in const [
+                          Colors.black,
+                          Colors.red,
+                          Colors.blue,
+                          Colors.green,
+                          Colors.purple,
+                          Colors.orange,
+                          Colors.brown,
+                          Colors.teal,
+                        ])
+                          _colorDot(
+                            color: color,
+                            selectedColor: selectedColor,
+                            onTap: () => dialogSetState(() => selectedColor = color),
+                          ),
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            final custom = await _pickCustomColor(selectedColor);
+                            if (custom != null) {
+                              dialogSetState(() => selectedColor = custom);
+                            }
+                          },
+                          icon: const Icon(Icons.palette_outlined),
+                          label: const Text('Custom'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Text('Review status', style: _headerStyle),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Not reviewed'),
+                          selected: oldEntry.status == EntryStatus.none,
+                          onSelected: (_) {},
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
               actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, null),
-                  child: const Text('Cancel'),
-                ),
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
                 TextButton(
                   onPressed: () {
                     Navigator.pop(
@@ -330,62 +498,113 @@ class _WeeklySchedulePageState extends State<WeeklySchedulePage> {
     await _saveData();
   }
 
-  Widget _colorDot(Color color, Color selectedColor, VoidCallback onTap) {
-    final bool selected = color.value == selectedColor.value;
+  Widget _colorDot({
+    required Color color,
+    required Color selectedColor,
+    required VoidCallback onTap,
+  }) {
+    final selected = color.value == selectedColor.value;
 
     return GestureDetector(
       onTap: onTap,
-      child: CircleAvatar(
-        radius: selected ? 17 : 14,
-        backgroundColor: color,
-        child: selected
-            ? const Icon(Icons.check, color: Colors.white, size: 18)
-            : null,
+      child: Container(
+        width: selected ? 36 : 30,
+        height: selected ? 36 : 30,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.black, width: selected ? 2.2 : 0.8),
+        ),
+        child: selected ? const Icon(Icons.check, color: Colors.white, size: 18) : null,
       ),
     );
   }
 
-  Future<void> _chooseReviewTime() async {
-    final selected = await showTimePicker(
+  Future<Color?> _pickCustomColor(Color initial) async {
+    double red = initial.red.toDouble();
+    double green = initial.green.toDouble();
+    double blue = initial.blue.toDouble();
+
+    return showDialog<Color>(
       context: context,
-      initialTime: reviewTime,
+      builder: (_) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final current = Color.fromARGB(255, red.round(), green.round(), blue.round());
+
+            Widget slider(String label, double value, ValueChanged<double> onChanged, Color activeColor) {
+              return Row(
+                children: [
+                  SizedBox(width: 24, child: Text(label, style: const TextStyle(fontFamily: null))),
+                  Expanded(
+                    child: Slider(
+                      value: value,
+                      max: 255,
+                      divisions: 255,
+                      activeColor: activeColor,
+                      label: value.round().toString(),
+                      onChanged: onChanged,
+                    ),
+                  ),
+                ],
+              );
+            }
+
+            return AlertDialog(
+              title: Text('Custom ink color', style: _titleStyle),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: current,
+                      border: Border.all(color: Colors.black),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  slider('R', red, (v) => setDialogState(() => red = v), Colors.red),
+                  slider('G', green, (v) => setDialogState(() => green = v), Colors.green),
+                  slider('B', blue, (v) => setDialogState(() => blue = v), Colors.blue),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                FilledButton(onPressed: () => Navigator.pop(context, current), child: const Text('Use')),
+              ],
+            );
+          },
+        );
+      },
     );
-
-    if (selected == null) return;
-
-    setState(() {
-      reviewTime = selected;
-    });
-
-    await _saveData();
   }
 
   Future<void> _reviewToday() async {
-    final now = DateTime.now();
-    final todayIndex = now.weekday % 7;
-    final today = days[todayIndex];
+    await _reviewDate(_dateOnly(DateTime.now()));
+  }
 
-    final todayEntries =
-        entries.entries
-            .where((entry) => entry.key.startsWith('$today-'))
-            .toList()
-          ..sort((a, b) {
-            final aHour = int.parse(a.key.split('-').last);
-            final bHour = int.parse(b.key.split('-').last);
-            return aHour.compareTo(bHour);
-          });
+  Future<void> _reviewDate(DateTime date) async {
+    final targetKey = _dateKey(date);
+    final dayEntries = entries.entries
+        .where((entry) => entry.key.startsWith('$targetKey-'))
+        .toList()
+      ..sort((a, b) {
+        final aHour = int.parse(a.key.split('-').last);
+        final bHour = int.parse(b.key.split('-').last);
+        return aHour.compareTo(bHour);
+      });
 
-    if (todayEntries.isEmpty) {
+    if (!mounted) return;
+
+    if (dayEntries.isEmpty) {
       await showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Text('Daily Review'),
-          content: Text('No planned items for $today.'),
+          title: Text('Daily Review', style: _titleStyle),
+          content: Text('No planned items for ${_dayLabel(date)} ${_shortDate(date)}.'),
           actions: [
-            FilledButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
-            ),
+            FilledButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
           ],
         ),
       );
@@ -398,20 +617,14 @@ class _WeeklySchedulePageState extends State<WeeklySchedulePage> {
         return StatefulBuilder(
           builder: (context, dialogSetState) {
             return AlertDialog(
-              title: Text(
-                '$today Review',
-                style: GoogleFonts.caveat(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              title: Text('${_dayLabel(date)} ${_shortDate(date)} Review', style: _titleStyle),
               content: SizedBox(
-                width: 420,
+                width: math.min(MediaQuery.of(context).size.width * 0.9, 520),
                 child: ListView.builder(
                   shrinkWrap: true,
-                  itemCount: todayEntries.length,
+                  itemCount: dayEntries.length,
                   itemBuilder: (context, index) {
-                    final mapEntry = todayEntries[index];
+                    final mapEntry = dayEntries[index];
                     final entryKey = mapEntry.key;
                     final entry = entries[entryKey]!;
                     final hour = int.parse(entryKey.split('-').last);
@@ -422,36 +635,25 @@ class _WeeklySchedulePageState extends State<WeeklySchedulePage> {
                         title: Text(
                           '${_formatHour(hour)} - ${entry.text}',
                           style: GoogleFonts.caveat(
-                            fontSize: 24,
+                            fontSize: 25,
+                            fontWeight: FontWeight.w700,
                             color: Color(entry.colorValue),
                           ),
                         ),
-                        subtitle: Text('Status: ${entry.status.name}'),
+                        subtitle: Text(_statusLabel(entry.status)),
                         trailing: PopupMenuButton<EntryStatus>(
+                          tooltip: 'Mark result',
                           onSelected: (status) async {
                             dialogSetState(() {
-                              entries[entryKey] = entry.copyWith(
-                                status: status,
-                              );
+                              entries[entryKey] = entry.copyWith(status: status);
                             });
-
                             setState(() {});
-
                             await _saveData();
                           },
                           itemBuilder: (_) => const [
-                            PopupMenuItem(
-                              value: EntryStatus.done,
-                              child: Text('Done'),
-                            ),
-                            PopupMenuItem(
-                              value: EntryStatus.missed,
-                              child: Text('Missed'),
-                            ),
-                            PopupMenuItem(
-                              value: EntryStatus.unsure,
-                              child: Text('Not sure'),
-                            ),
+                            PopupMenuItem(value: EntryStatus.done, child: Text('Done')),
+                            PopupMenuItem(value: EntryStatus.missed, child: Text('Missed')),
+                            PopupMenuItem(value: EntryStatus.unsure, child: Text('Not sure')),
                           ],
                         ),
                       ),
@@ -460,10 +662,7 @@ class _WeeklySchedulePageState extends State<WeeklySchedulePage> {
                 ),
               ),
               actions: [
-                FilledButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Done'),
-                ),
+                FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Done')),
               ],
             );
           },
@@ -472,41 +671,18 @@ class _WeeklySchedulePageState extends State<WeeklySchedulePage> {
     );
   }
 
-  Future<void> _editHeaderField({
-    required String title,
-    required String initialValue,
-    required ValueChanged<String> onSaved,
-  }) async {
-    final controller = TextEditingController(text: initialValue);
-
-    final result = await showDialog<String>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          style: GoogleFonts.caveat(fontSize: 26),
-          decoration: InputDecoration(hintText: title),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-
-    if (result == null) return;
-
+  Future<void> _goToCurrentWeek() async {
     setState(() {
-      onSaved(result);
+      selectedWeekStart = _startOfWeek(DateTime.now(), selectedStartWeekday);
     });
+    await _saveData();
+  }
 
+  Future<void> _changeStartWeekday(int value) async {
+    setState(() {
+      selectedStartWeekday = value;
+      selectedWeekStart = _startOfWeek(selectedWeekStart, selectedStartWeekday);
+    });
     await _saveData();
   }
 
@@ -515,23 +691,25 @@ class _WeeklySchedulePageState extends State<WeeklySchedulePage> {
     final reviewLabel = reviewTime.format(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFFFDF4),
       appBar: AppBar(
-        title: Text(
-          'Weekly Report',
-          style: GoogleFonts.caveat(fontSize: 34, fontWeight: FontWeight.bold),
-        ),
+        backgroundColor: const Color(0xFFFFFDF4),
+        surfaceTintColor: const Color(0xFFFFFDF4),
+        title: Text('Weekly Report', style: _titleStyle),
         actions: [
-          TextButton.icon(
+          IconButton(
+            tooltip: use24HourFormat ? 'Switch to 12h' : 'Switch to 24h',
             onPressed: () async {
-              setState(() {
-                use24HourFormat = !use24HourFormat;
-              });
-
+              setState(() => use24HourFormat = !use24HourFormat);
               await _saveData();
             },
             icon: const Icon(Icons.access_time),
-            label: Text(use24HourFormat ? '24h' : '12h'),
+          ),
+          TextButton(
+            onPressed: () async {
+              setState(() => use24HourFormat = !use24HourFormat);
+              await _saveData();
+            },
+            child: Text(use24HourFormat ? '24h' : '12h'),
           ),
           TextButton.icon(
             onPressed: _chooseReviewTime,
@@ -540,19 +718,25 @@ class _WeeklySchedulePageState extends State<WeeklySchedulePage> {
           ),
           TextButton.icon(
             onPressed: _reviewToday,
-            icon: const Icon(Icons.check_circle_outline),
+            icon: const Icon(Icons.fact_check_outlined),
             label: const Text('Review Today'),
           ),
           const SizedBox(width: 8),
         ],
       ),
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildHeader(),
           Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: SingleChildScrollView(child: _buildScheduleTable()),
+            child: Scrollbar(
+              thumbVisibility: true,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SingleChildScrollView(
+                  child: _buildScheduleTable(),
+                ),
+              ),
             ),
           ),
         ],
@@ -562,40 +746,87 @@ class _WeeklySchedulePageState extends State<WeeklySchedulePage> {
 
   Widget _buildHeader() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),
+      child: Wrap(
+        spacing: 16,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: 'Previous week',
+                onPressed: () async {
+                  setState(() => selectedWeekStart = selectedWeekStart.subtract(const Duration(days: 7)));
+                  await _saveData();
+                },
+                icon: const Icon(Icons.chevron_left),
+              ),
+              InkWell(
+                onTap: _goToCurrentWeek,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.45),
+                    border: Border.all(color: Colors.black, width: 1.2),
+                  ),
+                  child: Text(
+                    '${_shortDate(selectedWeekStart)} ~ ${_shortDate(_weekEnd())}',
+                    style: GoogleFonts.caveat(fontSize: 31, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Next week',
+                onPressed: () async {
+                  setState(() => selectedWeekStart = selectedWeekStart.add(const Duration(days: 7)));
+                  await _saveData();
+                },
+                icon: const Icon(Icons.chevron_right),
+              ),
+            ],
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Start day:', style: GoogleFonts.caveat(fontSize: 25, fontWeight: FontWeight.w700)),
+              const SizedBox(width: 8),
+              DropdownButton<int>(
+                value: selectedStartWeekday,
+                items: weekdayOptions
+                    .map((item) => DropdownMenuItem<int>(
+                          value: item.weekday,
+                          child: Text(item.label, style: GoogleFonts.caveat(fontSize: 24)),
+                        ))
+                    .toList(),
+                onChanged: (value) {
+                  if (value == null) return;
+                  _changeStartWeekday(value);
+                },
+              ),
+            ],
+          ),
           InkWell(
-            onTap: () {
-              _editHeaderField(
-                title: 'TEAM',
-                initialValue: team,
-                onSaved: (value) => team = value,
-              );
-            },
+            onTap: () => _editHeaderField(
+              title: 'TEAM',
+              initialValue: team,
+              onSaved: (value) => team = value,
+            ),
             child: Text(
               'TEAM : ${team.isEmpty ? '__________' : team}',
-              style: GoogleFonts.caveat(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-              ),
+              style: _headerStyle,
             ),
           ),
-          const SizedBox(width: 32),
           InkWell(
-            onTap: () {
-              _editHeaderField(
-                title: 'NAME',
-                initialValue: name,
-                onSaved: (value) => name = value,
-              );
-            },
+            onTap: () => _editHeaderField(
+              title: 'NAME',
+              initialValue: name,
+              onSaved: (value) => name = value,
+            ),
             child: Text(
               'NAME : ${name.isEmpty ? '__________' : name}',
-              style: GoogleFonts.caveat(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-              ),
+              style: _headerStyle,
             ),
           ),
         ],
@@ -604,76 +835,101 @@ class _WeeklySchedulePageState extends State<WeeklySchedulePage> {
   }
 
   Widget _buildScheduleTable() {
-    return Container(
-      margin: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.black, width: 1.5),
-      ),
-      child: Column(
-        children: [
-          Row(
+    final dates = _visibleDates();
+    final hours = _allHours();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          margin: const EdgeInsets.all(12),
+          decoration: BoxDecoration(border: Border.all(color: Colors.black, width: 1.5)),
+          child: Column(
             children: [
-              _headerCell(''),
-              for (final day in days) _headerCell(day),
+              Row(
+                children: [
+                  _headerCell(''),
+                  for (final date in dates)
+                    _headerCell('${_dayLabel(date)}\n${date.day.toString().padLeft(2, '0')}'),
+                ],
+              ),
+              for (final hour in hours)
+                Row(
+                  children: [
+                    _timeCell(_formatHour(hour)),
+                    for (final date in dates) _scheduleCell(date, hour),
+                  ],
+                ),
             ],
           ),
-          for (final hour in hours)
-            Row(
-              children: [
-                _timeCell(_formatHour(hour)),
-                for (final day in days) _scheduleCell(day, hour),
-              ],
-            ),
-        ],
-      ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () async {
+                  setState(() => extraLateRows++);
+                  await _saveData();
+                },
+                icon: const Icon(Icons.add),
+                label: Text('Add late row', style: GoogleFonts.caveat(fontSize: 24)),
+              ),
+              if (extraLateRows > 0)
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    setState(() => extraLateRows--);
+                    await _saveData();
+                  },
+                  icon: const Icon(Icons.remove),
+                  label: Text('Remove late row', style: GoogleFonts.caveat(fontSize: 24)),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
   Widget _headerCell(String text) {
     return Container(
-      width: 120,
-      height: 42,
+      width: 122,
+      height: 47,
       alignment: Alignment.center,
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.black, width: 0.8),
-      ),
+      decoration: BoxDecoration(border: Border.all(color: Colors.black, width: 0.8)),
       child: Text(
         text,
-        style: GoogleFonts.caveat(fontSize: 26, fontWeight: FontWeight.bold),
+        textAlign: TextAlign.center,
+        style: _headerStyle.copyWith(height: 0.9),
       ),
     );
   }
 
   Widget _timeCell(String text) {
     return Container(
-      width: 120,
+      width: 122,
       height: 58,
       alignment: Alignment.center,
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.black, width: 0.8),
-      ),
-      child: Text(
-        text,
-        style: GoogleFonts.caveat(fontSize: 25, fontWeight: FontWeight.bold),
-      ),
+      decoration: BoxDecoration(border: Border.all(color: Colors.black, width: 0.8)),
+      child: Text(text, style: _headerStyle),
     );
   }
 
-  Widget _scheduleCell(String day, int hour) {
-    final cellKey = _key(day, hour);
-    final entry = entries[cellKey];
+  Widget _scheduleCell(DateTime date, int hour) {
+    final key = _cellKey(date, hour);
+    final entry = entries[key];
 
     return GestureDetector(
-      onTap: () => _editEntry(day, hour),
+      onTap: () => _editEntry(date, hour),
       child: Container(
-        width: 120,
+        width: 122,
         height: 58,
-        padding: const EdgeInsets.all(4),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: entry == null
-              ? Colors.transparent
-              : _statusBackground(entry.status),
+          color: entry == null ? Colors.transparent : _statusBackground(entry.status),
           border: Border.all(color: Colors.black, width: 0.8),
         ),
         child: Text(
@@ -681,11 +937,7 @@ class _WeeklySchedulePageState extends State<WeeklySchedulePage> {
           textAlign: TextAlign.center,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: GoogleFonts.caveat(
-            fontSize: 21,
-            color: entry == null ? Colors.black : Color(entry.colorValue),
-            fontWeight: FontWeight.w600,
-          ),
+          style: _cellStyle.copyWith(color: entry == null ? Colors.black : Color(entry.colorValue)),
         ),
       ),
     );

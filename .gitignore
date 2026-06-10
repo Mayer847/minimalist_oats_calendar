@@ -7,8 +7,6 @@ build/
 .idea/
 .vscode/
 .DS_Store
-
-# Optional local helper files if you create them.
 .env
 .env.*
 *.local

@@ -1,28 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:html' as html;
 import 'dart:js_util' as js_util;
 
-/// Browser-only Google Drive appDataFolder sync service.
-///
-/// Requires these scripts in web/index.html:
-/// - https://accounts.google.com/gsi/client
-/// - https://apis.google.com/js/api.js
-/// - web/google_drive_sync.js
-///
-/// Client ID is provided at build time:
-/// flutter build web --dart-define=GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
 class GoogleDriveSyncService {
   static const String clientId = String.fromEnvironment('GOOGLE_CLIENT_ID');
 
   bool get isConfigured =>
-      clientId.isNotEmpty &&
-      !clientId.contains('PASTE_YOUR_GOOGLE_CLIENT_ID_HERE');
+      clientId.isNotEmpty && !clientId.contains('PASTE_YOUR_GOOGLE_CLIENT_ID_HERE');
 
   Future<void> initialize() async {
     if (!isConfigured) {
       throw StateError(
-        'GOOGLE_CLIENT_ID is missing. Build/run with --dart-define=GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com',
+        'GOOGLE_CLIENT_ID is missing. Run/build with --dart-define=GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com',
       );
     }
     await _callPromise('oatsGoogleDriveInit', [clientId]);
@@ -33,11 +22,6 @@ class GoogleDriveSyncService {
     return result?.toString();
   }
 
-  Future<bool> isSignedIn() async {
-    final result = await _callPromise('oatsGoogleDriveIsSignedIn', []);
-    return result == true;
-  }
-
   Future<void> signOut() async {
     await _callPromise('oatsGoogleDriveSignOut', []);
   }
@@ -46,9 +30,9 @@ class GoogleDriveSyncService {
     final result = await _callPromise('oatsGoogleDriveLoadBackup', []);
     if (result == null) return null;
     if (result is String) return jsonDecode(result) as Map<String, dynamic>;
+
     final jsonObject = js_util.getProperty(js_util.globalThis, 'JSON');
-    final jsonText =
-        js_util.callMethod(jsonObject, 'stringify', [result]) as String;
+    final jsonText = js_util.callMethod(jsonObject, 'stringify', [result]) as String;
     return jsonDecode(jsonText) as Map<String, dynamic>;
   }
 
@@ -62,17 +46,15 @@ class GoogleDriveSyncService {
   }
 
   Future<dynamic> _callPromise(String method, List<dynamic> args) async {
-    final fn = js_util.getProperty(html.window, method);
+    final fn = js_util.getProperty(js_util.globalThis, method);
     if (fn == null) {
-      throw StateError(
-          '$method is not loaded. Check web/google_drive_sync.js and index.html scripts.');
+      throw StateError('$method is not loaded. Check web/google_drive_sync.js and web/index.html.');
     }
-    final promise = js_util.callMethod(html.window, method, args);
+    final promise = js_util.callMethod(js_util.globalThis, method, args);
     return js_util.promiseToFuture(promise);
   }
 }
 
-/// Small debounce helper for auto-sync after edits.
 class SyncDebouncer {
   SyncDebouncer(this.delay);
   final Duration delay;

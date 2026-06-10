@@ -1,74 +1,100 @@
 # Minimalist OATS Calendar
 
-A minimalist Flutter Web weekly schedule app inspired by the handwritten OATS weekly report sheet.
-
-## Live App
-
-Open the app here:
+Live app:
 
 https://mayer847.github.io/minimalist_oats_calendar/
 
-## Features
+A minimalist Flutter Web weekly schedule app inspired by the handwritten OATS weekly report sheet.
 
-- Local-first storage using browser local storage.
-- Export/import full backup as JSON anytime.
-- Download the visible schedule as PNG.
-- GitHub Pages deployment workflow included.
-- Start day selector in the top bar next to the 24h/12h control.
-- Undo button for edits, imports, row changes, review changes, and drag/drop.
-- Overlap handling: later items are pushed down automatically.
-- Review any day from the `Review Day` button or by tapping a day header.
-- Review screen has visible `Done`, `Missed`, and `Not sure` buttons directly.
-- 30-minute slots with duration-based item blocks.
-- Dashed row guides instead of full horizontal row borders.
-- Long-press and drag:
-  - Same day = move vertically.
-  - Different day = copy horizontally.
+## Public Google Drive Sync
 
-## Run Locally
+This app can optionally sync each user's schedule to **their own Google Drive** using the hidden Drive `appDataFolder`.
+
+Important:
+
+- The Google Client ID identifies this app/project.
+- Every user uses the same Client ID.
+- The user's backup is stored inside **their Google Drive appDataFolder**, not inside your personal Google Drive.
+- The Client ID is not a secret. It will be visible in the deployed web app bundle.
+- No Firebase or paid backend is required.
+- True background sync while the app is closed is not available without a backend. Auto-sync works while the app is open.
+
+## Required Google Cloud Setup
+
+1. Go to Google Cloud Console.
+2. Create/select a project.
+3. Enable **Google Drive API**.
+4. Configure **OAuth consent screen**:
+   - User type: External.
+   - Publishing status: Production when ready for public use.
+   - App domain: `https://mayer847.github.io`
+   - Authorized domain: `github.io`
+   - Add a privacy policy URL if Google requires it for publishing.
+5. Create OAuth Client ID:
+   - Application type: Web application.
+   - Authorized JavaScript origins:
+
+```text
+https://mayer847.github.io
+```
+
+6. Copy the generated Client ID.
+7. In GitHub repo:
+   - Settings → Secrets and variables → Actions → Variables
+   - Add variable:
+
+```text
+GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
+```
+
+## Local Run
 
 ```bash
 flutter pub get
-flutter run -d chrome
+flutter run -d chrome --dart-define=GOOGLE_CLIENT_ID=PASTE_YOUR_GOOGLE_CLIENT_ID_HERE
 ```
 
-## Build for Web
+## GitHub Pages Deploy
 
-```bash
-flutter build web --release --base-href /minimalist_oats_calendar/
-```
-
-## Deploy to GitHub Pages
-
-This project includes a GitHub Actions workflow at:
+This repo includes:
 
 ```text
 .github/workflows/deploy.yml
 ```
 
-To deploy:
+The workflow builds with:
 
-1. Push changes to the `main` branch.
-2. Go to GitHub repo settings.
-3. Open **Pages**.
-4. Set **Source** to **GitHub Actions**.
-5. Wait for the workflow to finish.
-6. Open:
-
-```text
-https://mayer847.github.io/minimalist_oats_calendar/
+```bash
+--dart-define=GOOGLE_CLIENT_ID=${{ vars.GOOGLE_CLIENT_ID }}
 ```
 
-## Backup and Restore
+Push to `main`, then GitHub Actions will deploy.
 
-Use the export/import menu inside the app:
+## Release Script
 
-- **Export backup JSON**: saves all local schedule data to a `.json` file.
-- **Import backup JSON**: restores schedule data from a previous backup.
-- **Download schedule PNG**: exports the visible schedule as an image.
+Bash/Git Bash:
 
-## Notes
+```bash
+chmod +x scripts/release.sh
+./scripts/release.sh "Add Google Drive sync" v0.2.0
+```
 
-- Data is stored locally in the browser, so use **Export backup JSON** regularly if you want to preserve or move your data between browsers/devices.
-- The app is static and can be hosted on GitHub Pages.
-- Background reminders are planned for a later version.
+PowerShell:
+
+```powershell
+.\scripts\release.ps1 "Add Google Drive sync" v0.2.0
+```
+
+Auto bump:
+
+```bash
+./scripts/release.sh "Small fix" patch
+./scripts/release.sh "New feature" minor
+```
+
+## Backup Options
+
+- Local browser storage.
+- Manual JSON export/import.
+- Google Drive appDataFolder cloud sync.
+- Download visible schedule as PNG.

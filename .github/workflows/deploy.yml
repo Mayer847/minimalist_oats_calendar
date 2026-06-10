@@ -40,8 +40,14 @@ jobs:
           else
             BASE_HREF="/$REPO_NAME/"
           fi
-          echo "Using base href: $BASE_HREF"
-          flutter build web --release --base-href "$BASE_HREF"
+          if [ -z "${{ vars.GOOGLE_CLIENT_ID }}" ]; then
+            echo "Missing repository variable GOOGLE_CLIENT_ID"
+            echo "Add it in GitHub: Settings -> Secrets and variables -> Actions -> Variables"
+            exit 1
+          fi
+          flutter build web --release \
+            --base-href "$BASE_HREF" \
+            --dart-define=GOOGLE_CLIENT_ID="${{ vars.GOOGLE_CLIENT_ID }}"
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

@@ -1,0 +1,1 @@
+Use GitHub Actions variable GOOGLE_CLIENT_ID. Example: xxxxx.apps.googleusercontent.com

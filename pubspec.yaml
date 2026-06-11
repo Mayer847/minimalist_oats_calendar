@@ -1,7 +1,7 @@
 name: minimalist_oats_calendar
 description: Minimalist OATS weekly schedule with local storage and Google Drive sync.
 publish_to: "none"
-version: 1.3.0+4
+version: 1.4.0+5
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
